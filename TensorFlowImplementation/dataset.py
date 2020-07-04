@@ -10,20 +10,12 @@ __email__ = 'etayupanta@yotec.tech'
 import math
 import numpy as np
 import os
-from PIL import Image
-
-
-def default_image_loader(path):
-    return Image.open(path).convert('RGB')  # .transpose(0, 2, 1)
-
-
-def default_image_preprocess(img, width, height):
-    return img.resize((width, height), Image.ANTIALIAS)
+import tensorflow as tf
+import matplotlib.pyplot as plt
 
 
 class VisualOdometryDataLoader:
-    def __init__(self, datapath, height, width, transform=default_image_preprocess, test=False,
-                 loader=default_image_loader):
+    def __init__(self, datapath, height, width, num_epochs, batch_size, samples, test=False):
         self.base_path = datapath
         if test:
             self.sequences = ['01']
@@ -35,11 +27,43 @@ class VisualOdometryDataLoader:
         self.size = 0
         self.sizes = []
         self.poses = self.load_poses()
-
-        self.transform = transform
-        self.loader = loader
         self.width = width
         self.height = height
+
+        images_stacked, odometries = self.get_data()
+
+        perm = np.random.permutation(len(images_stacked))
+        images_stacked, odometries = images_stacked[perm], odometries[perm]
+
+        images_dataset = tf.data.Dataset.from_tensor_slices(images_stacked[:samples]).map(
+            lambda path: self.load_image(path),
+            num_parallel_calls=tf.data.experimental.AUTOTUNE,
+        )
+        odometries_dataset = tf.data.Dataset.from_tensor_slices(odometries[:samples])
+
+        dataset = tf.data.Dataset.zip((images_dataset, odometries_dataset))
+        dataset = dataset.cache()
+
+        dataset = dataset.batch(batch_size)
+        dataset = dataset.shuffle(buffer_size=100 + 3 * batch_size)
+        dataset = dataset.repeat(num_epochs)
+        dataset = dataset.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
+
+        self.dataset = dataset
+
+    def decode_img(self, img):
+        image = tf.image.decode_png(img, channels=3)
+        image = tf.image.convert_image_dtype(image, tf.float32)
+        image = tf.image.resize(image, [self.height, self.width])
+        return image
+
+    def load_image(self, image_path):
+        img1 = tf.io.read_file(image_path[0])
+        img2 = tf.io.read_file(image_path[1])
+        img1 = self.decode_img(img1)
+        img2 = self.decode_img(img2)
+        img = tf.concat([img1, img2], 0)
+        return img
 
     def load_poses(self):
         all_poses = []
@@ -52,10 +76,9 @@ class VisualOdometryDataLoader:
                 self.sizes.append(len(poses))
         return all_poses
 
-    def get_image(self, sequence, index):
+    def get_image_paths(self, sequence, index):
         image_path = os.path.join(self.base_path, 'sequences', sequence, 'image_2', '%06d' % index + '.png')
-        image = self.loader(image_path)
-        return image
+        return image_path
 
     def isRotationMatrix(self, R):
         Rt = np.transpose(R)
@@ -77,7 +100,6 @@ class VisualOdometryDataLoader:
             x = math.atan2(-R[1, 2], R[1, 1])
             y = math.atan2(-R[2, 0], sy)
             z = 0
-
         return np.array([x, y, z], dtype=np.float32)
 
     def get6DoFPose(self, p):
@@ -86,47 +108,31 @@ class VisualOdometryDataLoader:
         angles = self.rotationMatrixToEulerAngles(R)
         return np.concatenate((pos, angles))
 
+    def get_data(self):
+        images_paths = []
+        odometries = []
+        for index, sequence in enumerate(self.sequences):
+            for i in range(self.sizes[index] - 1):
+                images_paths.append([self.get_image_paths(sequence, i), self.get_image_paths(sequence, i + 1)])
+                pose1 = self.get6DoFPose(self.poses[index][i])
+                pose2 = self.get6DoFPose(self.poses[index][i + 1])
+                odom = pose2 - pose1
+                odometries.append(odom)
+        return np.array(images_paths), np.array(odometries)
+
     def __len__(self):
         return self.size - len(self.sequences)
 
-    def __getitem__(self, index):
-        sequence = 0
-        img1 = self.get_image(self.sequences[sequence], index)
-        img2 = self.get_image(self.sequences[sequence], index + 1)
-        pose1 = self.get6DoFPose(self.poses[sequence][index])
-        pose2 = self.get6DoFPose(self.poses[sequence][index + 1])
-        odom = pose2 - pose1
-        if self.transform is not None:
-            img1 = self.transform(img1, self.width, self.height)
-            img2 = self.transform(img2, self.width, self.height)
-        return np.concatenate([img1, img2]), odom
-
-
-def load_train_set(dirname, verbose=True):
-    dataset = VisualOdometryDataLoader(dirname, 384, 1280)
-    X_train = []
-    y_train = []
-    # for i in range(len(dataset)):
-    for i in range(10):
-        image, odom = dataset[i]
-        X_train.append(image)
-        y_train.append(odom)
-        if i % 10 == 1:
-            print('.', end='')
-        else:
-            print('')
-    return np.array(X_train), np.array(y_train)
-
 
 def main():
-    X, y = load_train_set("D:\EduardoTayupanta\Documentos\Librerias\dataset")
-    X = X.astype('float32') / 255.0
-    print(y)
-    # perm = np.random.permutation(len(X))
-    # X, y = X[perm], y[perm]
-    # dataset = VisualOdometryDataLoader("D:\EduardoTayupanta\Documentos\Librerias\dataset", 384, 1280)
-    # X, y = dataset[0]
-    # print(X)
+    path = "D:\EduardoTayupanta\Documentos\Librerias\dataset"
+    dataset = VisualOdometryDataLoader(path, 384, 1280, 20, 32, 10)
+    for element in dataset.dataset.as_numpy_iterator():
+        for index in range(len(element[0])):
+            img = element[0][index]
+            plt.title("TensorFlow Logo with shape {}".format(img.shape))
+            _ = plt.imshow(img)
+            plt.show()
 
 
 if __name__ == "__main__":

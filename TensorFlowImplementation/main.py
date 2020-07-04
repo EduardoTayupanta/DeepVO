@@ -9,34 +9,13 @@ __email__ = 'etayupanta@yotec.tech'
 # Import Libraries:
 import argparse
 from dataset import VisualOdometryDataLoader
-import numpy as np
+import matplotlib.pyplot as plt
 from TensorFlowImplementation.deepvonet import DeepVONet
 
 
-def load_train_set(dirname, verbose=True):
-    dataset = VisualOdometryDataLoader(dirname, 384, 1280)
-    X_train = []
-    y_train = []
-    # for i in range(len(dataset)):
-    for i in range(10):
-        image, odom = dataset[i]
-        X_train.append(image)
-        y_train.append(odom)
-        if i % 100 != 0:
-            print('.', end='')
-        else:
-            print('')
-    print('')
-    return np.array(X_train), np.array(y_train)
-
-
-def train(model, path):
+def train(model, path, epochs, bsize):
     print('Load Data...')
-    X, y = load_train_set(path)
-    perm = np.random.permutation(len(X))
-    X, y = X[perm], y[perm]
-
-    X = X.astype('float32') / 255.0
+    dataset = VisualOdometryDataLoader(path, 384, 1280, epochs, bsize, 850)
 
     print('Summary model...')
     model.summary()
@@ -45,7 +24,11 @@ def train(model, path):
     model.compile()
 
     print('Training model...')
-    history = model.train(X, y)
+    history = model.train(dataset.dataset, len(dataset))
+    plt.xlabel('Epoch Number')
+    plt.ylabel("Loss Magnitude")
+    plt.plot(history.history['loss'])
+    plt.show()
 
 
 def test(model, path):
@@ -70,11 +53,13 @@ def main():
     parser.add_argument('--checkpoint', default=None, type=str, help='Checkpoint')
     args = parser.parse_args()
 
-    model = DeepVONet(args, 1280, 384)
+    model = DeepVONet(args, 384, 1280)
     if args.mode == 'train':
-        train(model, args.datapath)
+        train(model, args.datapath, args.train_iter, args.bsize)
     elif args.mode == 'test':
         test(model, args.datapath)
+
+    # --mode train --datapath D:\EduardoTayupanta\Documentos\Librerias\dataset --bsize 2 --lr 0.001 --train_iter 20 --checkpoint_path ./checkpoint
 
 
 if __name__ == "__main__":

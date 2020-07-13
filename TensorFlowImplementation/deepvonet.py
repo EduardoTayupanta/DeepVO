@@ -83,12 +83,11 @@ class DeepVONet:
     def compile(self):
         return self.model.compile(
             loss=self.custom_loss,
-            optimizer=tf.keras.optimizers.SGD(learning_rate=self.lr),
+            optimizer=tf.keras.optimizers.SGD(learning_rate=self.lr, momentum=self.momentum, nesterov=True),
             metrics=['accuracy']
         )
 
-    def train(self, dataset, train_images_list):
-        steps_per_epc = train_images_list / self.bsize
+    def train(self, dataset):
 
         # Create a callback that saves the model's weights
         cp_callback = tf.keras.callbacks.ModelCheckpoint(filepath=self.checkpoint_path + '/cp.ckpt',
@@ -97,5 +96,4 @@ class DeepVONet:
 
         return self.model.fit(dataset,
                               epochs=self.train_iter,
-                              steps_per_epoch=steps_per_epc,
                               callbacks=[cp_callback])

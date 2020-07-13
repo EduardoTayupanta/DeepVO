@@ -15,14 +15,13 @@ import matplotlib.pyplot as plt
 
 
 class VisualOdometryDataLoader:
-    def __init__(self, datapath, height, width, num_epochs, batch_size, samples, test=False):
+    def __init__(self, datapath, height, width, batch_size, test=False):
         self.base_path = datapath
         if test:
             self.sequences = ['01']
         else:
             # self.sequences = ['00', '01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21']
-            # self.sequences = ['00', '01', '02', '03', '04', '05', '06', '07', '08', '09', '10']
-            self.sequences = ['00']
+            self.sequences = ['00', '01', '02', '03', '04', '05', '06', '07', '08', '09', '10']
 
         self.size = 0
         self.sizes = []
@@ -32,22 +31,11 @@ class VisualOdometryDataLoader:
 
         images_stacked, odometries = self.get_data()
 
-        perm = np.random.permutation(len(images_stacked))
-        images_stacked, odometries = images_stacked[perm], odometries[perm]
-
-        images_dataset = tf.data.Dataset.from_tensor_slices(images_stacked[:samples]).map(
-            lambda path: self.load_image(path),
-            num_parallel_calls=tf.data.experimental.AUTOTUNE,
-        )
-        odometries_dataset = tf.data.Dataset.from_tensor_slices(odometries[:samples])
-
-        dataset = tf.data.Dataset.zip((images_dataset, odometries_dataset))
-        dataset = dataset.cache()
-
+        dataset = tf.data.Dataset.from_tensor_slices((images_stacked, odometries))
+        dataset = dataset.shuffle(len(images_stacked))
+        dataset = dataset.map(self.load_image, num_parallel_calls=tf.data.experimental.AUTOTUNE)
         dataset = dataset.batch(batch_size)
-        dataset = dataset.shuffle(buffer_size=100 + 3 * batch_size)
-        dataset = dataset.repeat(num_epochs)
-        dataset = dataset.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
+        dataset = dataset.prefetch(tf.data.experimental.AUTOTUNE)
 
         self.dataset = dataset
 
@@ -57,13 +45,13 @@ class VisualOdometryDataLoader:
         image = tf.image.resize(image, [self.height, self.width])
         return image
 
-    def load_image(self, image_path):
-        img1 = tf.io.read_file(image_path[0])
-        img2 = tf.io.read_file(image_path[1])
+    def load_image(self, filename, odometry):
+        img1 = tf.io.read_file(filename[0])
+        img2 = tf.io.read_file(filename[1])
         img1 = self.decode_img(img1)
         img2 = self.decode_img(img2)
         img = tf.concat([img1, img2], 0)
-        return img
+        return img, odometry
 
     def load_poses(self):
         all_poses = []
@@ -125,11 +113,12 @@ class VisualOdometryDataLoader:
 
 
 def main():
-    path = "D:\EduardoTayupanta\Documentos\Librerias\dataset"
-    dataset = VisualOdometryDataLoader(path, 384, 1280, 20, 32, 10)
+    path = "D:\EduardoTayupanta\Documents\Librerias\dataset"
+    dataset = VisualOdometryDataLoader(path, 384, 1280, 32)
     for element in dataset.dataset.as_numpy_iterator():
         for index in range(len(element[0])):
             img = element[0][index]
+            print(element[1][index])
             plt.title("TensorFlow Logo with shape {}".format(img.shape))
             _ = plt.imshow(img)
             plt.show()

@@ -13,9 +13,9 @@ import matplotlib.pyplot as plt
 from TensorFlowImplementation.deepvonet import DeepVONet
 
 
-def train(model, path, epochs, bsize):
+def train(model, path, bsize):
     print('Load Data...')
-    dataset = VisualOdometryDataLoader(path, 384, 1280, epochs, bsize, 850)
+    dataset = VisualOdometryDataLoader(path, 384, 1280, bsize)
 
     print('Summary model...')
     model.summary()
@@ -24,7 +24,7 @@ def train(model, path, epochs, bsize):
     model.compile()
 
     print('Training model...')
-    history = model.train(dataset.dataset, len(dataset))
+    history = model.train(dataset.dataset)
     plt.xlabel('Epoch Number')
     plt.ylabel("Loss Magnitude")
     plt.plot(history.history['loss'])
@@ -55,11 +55,11 @@ def main():
 
     model = DeepVONet(args, 384, 1280)
     if args.mode == 'train':
-        train(model, args.datapath, args.train_iter, args.bsize)
+        train(model, args.datapath, args.bsize)
     elif args.mode == 'test':
         test(model, args.datapath)
 
-    # --mode train --datapath D:\EduardoTayupanta\Documentos\Librerias\dataset --bsize 2 --lr 0.001 --train_iter 20 --checkpoint_path ./checkpoint
+    # --mode train --datapath D:\EduardoTayupanta\Documents\Librerias\dataset --bsize 8 --lr 0.0001 --momentum 0.99 --train_iter 20 --checkpoint_path ./checkpoint
 
 
 if __name__ == "__main__":

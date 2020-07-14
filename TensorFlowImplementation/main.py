@@ -10,7 +10,7 @@ __email__ = 'etayupanta@yotec.tech'
 import argparse
 from dataset import VisualOdometryDataLoader
 import matplotlib.pyplot as plt
-from TensorFlowImplementation.deepvonet import DeepVONet
+from deepvonet import DeepVONet
 
 
 def train(model, path, bsize):
@@ -54,12 +54,17 @@ def main():
     args = parser.parse_args()
 
     model = DeepVONet(args, 384, 1280)
+    if args.checkpoint is not None:
+        print('Load checkpoint...')
+        checkpoint = args.checkpoint
+        model.model.load_weights(checkpoint)
+
     if args.mode == 'train':
         train(model, args.datapath, args.bsize)
     elif args.mode == 'test':
         test(model, args.datapath)
 
-    # --mode train --datapath D:\EduardoTayupanta\Documents\Librerias\dataset --bsize 8 --lr 0.0001 --momentum 0.99 --train_iter 20 --checkpoint_path ./checkpoint
+    # --mode train --datapath D:\EduardoTayupanta\Documents\Librerias\dataset --bsize 8 --lr 0.0001 --momentum 0.99 --train_iter 20 --checkpoint_path ./checkpoint --checkpoint ./checkpoint/cp.ckpt
 
 
 if __name__ == "__main__":

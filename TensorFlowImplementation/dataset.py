@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 Created by etayupanta at 7/1/2020 - 16:11
-PyCharm - DeepVO
 __author__ = 'Eduardo Tayupanta'
-__email__ = 'etayupanta@yotec.tech'
+__email__ = 'eduardotayupanta@outlook.com'
 """
 
 # Import Libraries:

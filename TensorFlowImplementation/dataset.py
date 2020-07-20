@@ -42,6 +42,7 @@ class VisualOdometryDataLoader:
 
     def decode_img(self, img):
         image = tf.image.decode_png(img, channels=3)
+        image = image[..., ::-1]
         image = tf.image.convert_image_dtype(image, tf.float32)
         image = tf.image.resize(image, [self.height, self.width])
         return image
@@ -51,7 +52,7 @@ class VisualOdometryDataLoader:
         img2 = tf.io.read_file(filename[1])
         img1 = self.decode_img(img1)
         img2 = self.decode_img(img2)
-        img = tf.concat([img1, img2], 0)
+        img = tf.concat([img1, img2], -1)
         return img, odometry
 
     def load_poses(self):

@@ -7,27 +7,72 @@ __email__ = 'etayupanta@yotec.tech'
 """
 
 # Import Libraries:
-import argparse
 from dataset import VisualOdometryDataLoader
+from deepvonet import DeepVONet, FlowNet
 import matplotlib.pyplot as plt
-from deepvonet import DeepVONet
+import tensorflow as tf
 
 
-def train(model, path, bsize):
+# Custom loss function.
+def custom_loss(y_pred, y_true, k, criterion):
+    mse_position = criterion(y_true[:, :3], y_pred[:, :3])
+    mse_orientation = criterion(y_true[:, 3:], y_pred[:, 3:])
+    return mse_position + k * mse_orientation
+
+
+def run_optimization(model, x, y, k, criterion, optimizer):
+    with tf.GradientTape() as g:
+        # Forward pass.
+        pred = model(x, is_training=True)
+        # Compute loss.
+        loss = custom_loss(pred, y, k, criterion)
+
+    # Variables to update, i.e. trainable variables.
+    trainable_variables = model.trainable_variables
+
+    # Compute gradients.
+    gradients = g.gradient(loss, trainable_variables)
+
+    # Update W and b following gradients.
+    optimizer.apply_gradients(zip(gradients, trainable_variables))
+
+
+def train_model(dataset, flownet, deepvonet, config, criterion, optimizer, epoch):
+    loss = 0.0
+    for step, (batch_x, batch_y) in enumerate(dataset.dataset):
+        with tf.device('/gpu:0'):
+            flow = flownet(batch_x)
+        with tf.device('/cpu:0'):
+            run_optimization(deepvonet, flow, batch_y, config['k'], criterion, optimizer)
+            pred = deepvonet(flow)
+
+        loss = custom_loss(pred, batch_y, config['k'], criterion).numpy()
+        print('Epoch {}, \t Step: {}, \t Loss: {}'.format(epoch, step, loss))
+    return loss
+
+
+def train(flownet, deepvonet, config):
     print('Load Data...')
-    dataset = VisualOdometryDataLoader(path, 384, 1280, bsize)
+    dataset = VisualOdometryDataLoader(config['datapath'], 384, 1280, config['bsize'])
 
-    print('Summary model...')
-    model.summary()
-
-    print('Compile model...')
-    model.compile()
+    criterion = tf.keras.losses.MeanSquaredError()
+    optimizer = tf.keras.optimizers.SGD(learning_rate=config['lr'], momentum=config['momentum'], nesterov=True)
 
     print('Training model...')
-    history = model.train(dataset.dataset)
-    plt.xlabel('Epoch Number')
-    plt.ylabel("Loss Magnitude")
-    plt.plot(history.history['loss'])
+    total_loss = []
+    for epoch in range(1, config['train_iter']):
+        loss = train_model(dataset, flownet, deepvonet, config, criterion, optimizer, epoch)
+        flownet.save_weights(config['checkpoint_path'] + '/deepvo-{:04d}.ckpt'.format(epoch))
+        total_loss.append(loss)
+
+    print('Plot loss...')
+    fig, ax = plt.subplots()
+    ax.plot(range(len(total_loss)), total_loss)
+
+    ax.set(xlabel='Epoch Number', ylabel='Loss Magnitude', title='Loss per epoch')
+    ax.grid()
+
+    fig.savefig("loss.png")
     plt.show()
 
 
@@ -36,35 +81,32 @@ def test(model, path):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='TensorFlow DeepVO')
+    gpus = tf.config.experimental.list_physical_devices('GPU')
+    if gpus:
+        try:
+            for gpu in gpus:
+                tf.config.experimental.set_memory_growth(gpu, True)
+        except RuntimeError as e:
+            print(e)
 
-    parser.add_argument('--mode', default='train', type=str, help='support option: train/test')
-    parser.add_argument('--datapath', default='datapath', type=str, help='path KITII odometry dataset')
-    parser.add_argument('--bsize', default=32, type=int, help='minibatch size')
-    parser.add_argument('--lr', type=float, default=0.0001, metavar='LR', help='learning rate (default: 0.0001)')
-    parser.add_argument('--momentum', type=float, default=0.5, metavar='M', help='SGD momentum (default: 0.5)')
-    parser.add_argument('--weight_decay', type=float, default=1e-4, metavar='M', help='SGD momentum (default: 0.5)')
-    parser.add_argument('--tau', default=0.001, type=float, help='moving average for target network')
-    parser.add_argument('--debug', dest='debug', action='store_true')
-    parser.add_argument('--train_iter', default=20000000, type=int, help='train iters each timestep')
-    parser.add_argument('--validation_steps', default=100, type=int, help='test iters each timestep')
-    parser.add_argument('--epsilon', default=50000, type=int, help='linear decay of exploration policy')
-    parser.add_argument('--checkpoint_path', default=None, type=str, help='Checkpoint path')
-    parser.add_argument('--checkpoint', default=None, type=str, help='Checkpoint')
-    args = parser.parse_args()
+    config = {
+        'mode': 'train',
+        'datapath': 'D:\EduardoTayupanta\Documents\Librerias\dataset',
+        'bsize': 8,
+        'lr': 0.001,
+        'momentum': 0.99,
+        'train_iter': 20,
+        'checkpoint_path': './checkpoints',
+        'k': 100,
+    }
 
-    model = DeepVONet(args, 384, 1280)
-    if args.checkpoint is not None:
-        print('Load checkpoint...')
-        checkpoint = args.checkpoint
-        model.model.load_weights(checkpoint)
+    deepvonet = DeepVONet()
+    flownet = FlowNet()
 
-    if args.mode == 'train':
-        train(model, args.datapath, args.bsize)
-    elif args.mode == 'test':
-        test(model, args.datapath)
-
-    # --mode train --datapath D:\EduardoTayupanta\Documents\Librerias\dataset --bsize 8 --lr 0.0001 --momentum 0.99 --train_iter 20 --checkpoint_path ./checkpoint --checkpoint ./checkpoint/cp.ckpt
+    if config['mode'] == 'train':
+        train(flownet, deepvonet, config)
+    elif config['mode'] == 'test':
+        test(deepvonet, config)
 
 
 if __name__ == "__main__":
